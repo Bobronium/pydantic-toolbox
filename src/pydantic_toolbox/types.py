@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
 from string import Formatter
 from types import new_class
 from typing import Any, TYPE_CHECKING
@@ -73,3 +75,79 @@ class TemplateStr(str):
             raise errors.TemplateStrError(['{}'] * cls.__quantity__, found_keys)
 
         return v
+
+
+class IntBase(int):
+    """
+    Allow strings to be parsed as integers with chosen base
+
+    Feature request in pydantic: https://github.com/samuelcolvin/pydantic/issues/682
+
+    >>> IntBase[16]('0xa') == 10
+    True
+    >>> IntBase[16]('a') == 10
+    True
+    >>> IntBase[16]('f')
+    0xf
+    """
+    __int_base__: int
+    _get_base_string: Callable[[int], str]
+
+    _bases_format_types = {
+        2: "#b",
+        8: "#o",
+        10: "#d",
+        16: "#x",
+    }
+    _cache: dict[int, type[IntBase]] = {}
+
+    def __new__(cls, value: int | str) -> IntBase:
+        if not hasattr(cls, '__int_base__'):
+            raise TypeError(f'{cls.__name__} must be concrete')
+        if isinstance(value, str):
+            return super().__new__(cls, value, base=cls.__int_base__)
+        return super().__new__(cls, value)
+
+    def __class_getitem__(cls, base: int) -> type[IntBase]:
+        try:
+            int('0', base=base)
+        except ValueError as e:
+            raise TypeError(e.args[0].replace('int() base', f'{cls.__name__}[`arg`]')) from None
+
+        if base in cls._cache:
+            return cls._cache[base]
+
+        name = f'{cls.__name__}[{base}]'
+
+        format_type = cls._bases_format_types.get(base, None)
+        namespace = {'__int_base__': base}
+        if format_type is None:
+            namespace['__repr__'] = int.__repr__
+        else:
+            namespace['_get_base_string'] = ('{:%s}' % format_type).format
+
+        new_cls = cls._cache[base] = new_class(
+            name=name,
+            bases=(cls,),
+            exec_body=lambda ns: ns.update(namespace)
+        )
+        return new_cls
+
+    @classmethod
+    def __get_validators__(cls) -> 'CallableGenerator':
+        yield cls
+
+    def __repr__(self):
+        return self._get_base_string(self)
+
+
+class Bin(IntBase[2]):
+    ...
+
+
+class Oct(IntBase[8]):
+    ...
+
+
+class Hex(IntBase[16]):
+    ...
