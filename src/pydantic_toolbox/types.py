@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
+from functools import cache
 from string import Formatter
 from types import new_class
 from typing import Any, TYPE_CHECKING
@@ -99,7 +99,6 @@ class IntBase(int):
         10: "#d",
         16: "#x",
     }
-    _cache: dict[int, type[IntBase]] = {}
 
     def __new__(cls, value: int | str) -> IntBase:
         if not hasattr(cls, '__int_base__'):
@@ -108,14 +107,13 @@ class IntBase(int):
             return super().__new__(cls, value, base=cls.__int_base__)
         return super().__new__(cls, value)
 
+    @classmethod
+    @cache
     def __class_getitem__(cls, base: int) -> type[IntBase]:
         try:
             int('0', base=base)
         except ValueError as e:
             raise TypeError(e.args[0].replace('int() base', f'{cls.__name__}[`arg`]')) from None
-
-        if base in cls._cache:
-            return cls._cache[base]
 
         name = f'{cls.__name__}[{base}]'
 
@@ -126,12 +124,11 @@ class IntBase(int):
         else:
             namespace['_get_base_string'] = ('{:%s}' % format_type).format
 
-        new_cls = cls._cache[base] = new_class(
+        return new_class(
             name=name,
             bases=(cls,),
             exec_body=lambda ns: ns.update(namespace)
         )
-        return new_cls
 
     @classmethod
     def __get_validators__(cls) -> 'CallableGenerator':
